@@ -12,7 +12,9 @@
         this._counter = 0;
         this._visuals = [];
 
-        this._addGuide(new GBBoxGuide(this));
+        var bboxGuide = new GBBoxGuide(this);
+        bboxGuide.setPriority(GBBoxGuide.PRIORITY.DISTANCE_FIRST);
+        this._addGuide(bboxGuide);
         this._addGuide(new GPageGuide(this));
         this._addGuide(new GGridGuide(this));
         this._addGuide(new GUnitGuide(this));
@@ -245,6 +247,29 @@
         var resX = [];
         var resY = [];
 
+        var distDeltas = [];
+        var visDistX = [];
+        var visDistY = [];
+        var distRect = null;
+
+        // Check bbox distance guide at first
+        var bboxGuide = this._getBBoxGuide();
+        if (bboxGuide && bboxGuide.isMappingAllowed(this._isGuideEnabled(bboxGuide))) {
+            distRect = bboxGuide.checkDistanceGuidesMapping(
+                rect, GGuides.options.snapDistance, distDeltas, visDistX, visDistY);
+
+            if (distRect && (visDistX.length || visDistY.length) &&
+                bboxGuide.getPriority() === GBBoxGuide.PRIORITY.DISTANCE_FIRST) {
+
+                if (visDistX.length) {
+                    this._visuals = this._visuals.concat(visDistX);
+                } else {
+                    this._visuals = this._visuals.concat(visDistY);
+                }
+                return distRect;
+            }
+        }
+
         var guide;
         var res = null;
         var targPts = [];
@@ -279,6 +304,36 @@
                     }
                     res = null;
                 }
+
+                if (guide instanceof GBBoxGuide) {
+                    // If there is a mapping to apply from both distance guides and regular bbox guides
+                    // and bbox is in priopity, select guides by mapping distance
+                    if (distRect && (visDistX.length || visDistY.length)
+                        && distDeltas.length) { // bboxGuide.getPriority() === GBBoxGuide.PRIORITY.BBOX_FIRST) {
+
+                        var bboxDeltaX = 0;
+                        var bboxDeltaY = 0;
+                        if (resX.length) {
+                            bboxDeltaX = resX[0].value - pivots[resX[0].pivotIdx].getX();
+                        }
+
+                        if (resY.length) {
+                            bboxDeltaY = resY[0].value - pivots[resY[0].pivotIdx].getY();
+                        }
+
+                        if (visDistX.length && (!bboxDeltaY || Math.abs(distDeltas[1]) < Math.abs(bboxDeltaY))) {
+                            this._visuals = this._visuals.concat(visDistX);
+                            resRect = distRect;
+                        } else if (visDistY.length && (!bboxDeltaX || Math.abs(distDeltas[0]) < Math.abs(bboxDeltaX))) {
+                            this._visuals = this._visuals.concat(visDistY);
+                            resRect = distRect;
+                        }
+
+                        if (resRect) {
+                            return resRect;
+                        }
+                    }
+                }
             }
         }
 
@@ -297,12 +352,6 @@
             resRect = rect.translated(deltaX, deltaY);
             resX = [];
             resY = [];
-
-            // Check distance guides visuals
-            var bboxGuide = this._getBBoxGuide();
-            if (bboxGuide && bboxGuide.isMappingAllowed(this._isGuideEnabled(bboxGuide))) {
-                bboxGuide.checkDistanceGuides(resRect, resX, resY);
-            }
 
             // Select guides visuals
             if (!resX.length || !resY.length) {
